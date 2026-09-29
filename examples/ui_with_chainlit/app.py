@@ -3,6 +3,7 @@ from pathlib import Path
 import chainlit as cl
 from init_setup import ChainlitEnv
 
+from metagpt.actions import UserRequirement
 from metagpt.roles import (
     Architect,
     Engineer,
@@ -11,6 +12,19 @@ from metagpt.roles import (
     QaEngineer,
 )
 from metagpt.team import Team
+
+
+def _ensure_watch(role, actions):
+    """RoleZero subclasses only register `_watch` when `use_fixed_sop=True`.
+
+    With the default `use_fixed_sop=False` their `rc.watch` stays empty, so the
+    role is never triggered by an incoming message: `_observe()` finds no news,
+    `_think()` returns early on `if not self.rc.todo`, and the LLM is never
+    called. The whole team looks idle and the UI appears unresponsive.
+    """
+    if not role.rc.watch:
+        role._watch(actions)
+    return role
 
 
 # https://docs.chainlit.io/concepts/starters
@@ -53,14 +67,24 @@ async def startup(message: cl.Message) -> None:
     idea = message.content
     company = Team(env=ChainlitEnv())
 
+    await cl.Message(
+        content=(
+            f"**Ideia recebida:** {idea}\n\n"
+            "Montando a software company "
+            "(`ProductManager → Architect → ProjectManager → Engineer → QaEngineer`)...\n\n"
+            "*Nota: o modelo (`qwen3.6-35b-a3b`) roda localmente em CPU/GPU e pode "
+            "levar vários minutos por fase. A saída aparece conforme é gerada.*"
+        )
+    ).send()
+
     # Similar to software_company.py
     company.hire(
         [
-            ProductManager(),
-            Architect(),
-            ProjectManager(),
-            Engineer(n_borg=5, use_code_review=True),
-            QaEngineer(),
+            _ensure_watch(ProductManager(), [UserRequirement]),
+            _ensure_watch(Architect(), [UserRequirement]),
+            _ensure_watch(ProjectManager(), [UserRequirement]),
+            _ensure_watch(Engineer(n_borg=5, use_code_review=True), [UserRequirement]),
+            _ensure_watch(QaEngineer(), [UserRequirement]),
         ]
     )
 
